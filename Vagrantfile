@@ -28,10 +28,15 @@ Vagrant.configure("2") do |config|
     vb.customize ["usbfilter", "add", "3", "--target", :id, "--name", "Alfa", "--vendorid", "0e8d"]
   end
   
-  # 共享文件夹：捕获的握手包会同步到 Windows
+  # 端口转发 - Web 控制面板
+  config.vm.network "forwarded_port", guest: 5000, host: 5000
+  
+  # 共享文件夹
   config.vm.synced_folder "./captures", "/home/vagrant/captures", create: true
   config.vm.synced_folder "./scripts", "/home/vagrant/scripts", create: true
   config.vm.synced_folder "./config", "/home/vagrant/config", create: true
+  config.vm.synced_folder "./web", "/home/vagrant/web", create: true
+  config.vm.synced_folder "./data", "/home/vagrant/data", create: true
   
   # 自动配置环境
   config.vm.provision "shell", path: "scripts/setup.sh"
