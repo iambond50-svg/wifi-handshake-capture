@@ -1,6 +1,15 @@
 # WiFi Handshake Capture Tool
 
-自动捕获周围 WiFi WPA/WPA2 握手包的轻量级工具。
+自动捕获周围 WiFi WPA/WPA2 握手包的轻量级工具，带 Web 控制面板。
+
+## 📦 下载
+
+**预构建版本（推荐）：** [Yandex Disk 下载](https://disk.yandex.ru/d/gkORCOH2za78Qg)
+
+包含：
+- `WiFi捕获工具.exe` - Windows 管理工具
+- `vm/` - 预配置的 Alpine Linux 虚拟机
+- `使用说明.txt`
 
 ## ⚠️ 法律声明
 
@@ -237,3 +246,11 @@ wifi-handshake-capture/
 ## License
 
 MIT License - 仅供教育目的使用
+
+---
+
+## 💬 交流群
+
+QQ 群：**368345008**
+
+欢迎加入交流使用问题、提交 Bug 和建议！
