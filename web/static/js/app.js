@@ -8,20 +8,46 @@ const state = {
     captures: [],
     isScanning: false,
     isCapturing: false,
+    isAutoCapturing: false,
     currentTarget: null,
     eventSource: null,
     captureTimer: null,
     captureStartTime: null,
-    handshakeNotified: false  // 防止重复通知
+    handshakeNotified: false,  // 防止重复通知
+    autoCapture: {
+        total: 0,
+        completed: 0,
+        captured: 0,
+        failed: 0,
+        currentTarget: null
+    }
+};
+
+// 攻击状态映射
+const attackStatusLabels = {
+    'none': { text: '', icon: '', class: '' },
+    'queued': { text: '排队中', icon: '⏳', class: 'status-queued' },
+    'attacking': { text: '攻击中', icon: '⚡', class: 'status-attacking' },
+    'captured': { text: '已捕获', icon: '✅', class: 'status-captured' },
+    'failed': { text: '失败', icon: '❌', class: 'status-failed' },
+    'skipped': { text: '跳过', icon: '⏭️', class: 'status-skipped' }
 };
 
 // DOM 元素
 const elements = {
     btnScan: document.getElementById('btn-scan'),
     btnStopScan: document.getElementById('btn-stop-scan'),
+    btnAutoCapture: document.getElementById('btn-auto-capture'),
+    btnStopAuto: document.getElementById('btn-stop-auto'),
     scanProgress: document.getElementById('scan-progress'),
     progressFill: document.getElementById('progress-fill'),
     progressText: document.getElementById('progress-text'),
+    autoCaptureProgress: document.getElementById('auto-capture-progress'),
+    autoProgressStats: document.getElementById('auto-progress-stats'),
+    autoProgressFill: document.getElementById('auto-progress-fill'),
+    autoCurrentTarget: document.getElementById('auto-current-target'),
+    autoCapturedCount: document.getElementById('auto-captured-count'),
+    autoFailedCount: document.getElementById('auto-failed-count'),
     wifiList: document.getElementById('wifi-list'),
     networkCount: document.getElementById('network-count'),
     captureSection: document.getElementById('capture-section'),
@@ -35,6 +61,7 @@ const elements = {
     interfaceStatus: document.getElementById('interface-status'),
     scanStatus: document.getElementById('scan-status'),
     filterEncryption: document.getElementById('filter-encryption'),
+    filterAttackStatus: document.getElementById('filter-attack-status'),
     notifications: document.getElementById('notifications')
 };
 
@@ -85,27 +112,80 @@ function handleStreamData(data) {
     }
     
     // 更新网络列表
-    if (data.networks && state.isScanning) {
+    if (data.networks) {
         state.networks = data.networks;
-        renderNetworks();
+        if (state.isScanning || state.isAutoCapturing) {
+            renderNetworks();
+        }
     }
     
-// 检查握手包捕获
+    // 更新批量捕获状态
+    if (data.auto_capture) {
+        updateAutoCaptureDisplay(data.auto_capture);
+    }
+    
+    // 检查握手包捕获
     if (data.status && data.status.current_target) {
         const target = data.status.current_target;
         if (target.handshake && target.status === 'success' && !state.handshakeNotified) {
-            state.handshakeNotified = true;  // 标记已通知
-            showNotification('成功捕获握手包！已自动停止监听', 'success');
+            state.handshakeNotified = true;
+            if (!state.isAutoCapturing) {
+                showNotification('成功捕获握手包！已自动停止监听', 'success');
+            }
             loadCaptures();
             
             // 自动清理前端状态
-            state.isCapturing = false;
-            state.currentTarget = null;
-            if (state.captureTimer) {
-                clearInterval(state.captureTimer);
-                state.captureTimer = null;
+            if (!state.isAutoCapturing) {
+                state.isCapturing = false;
+                state.currentTarget = null;
+                if (state.captureTimer) {
+                    clearInterval(state.captureTimer);
+                    state.captureTimer = null;
+                }
+                elements.captureSection.style.display = 'none';
             }
-            elements.captureSection.style.display = 'none';
+        }
+    }
+}
+
+// 更新批量捕获显示
+function updateAutoCaptureDisplay(autoCapture) {
+    state.isAutoCapturing = autoCapture.is_running;
+    state.autoCapture = autoCapture.progress || state.autoCapture;
+    
+    // 更新按钮状态
+    if (elements.btnAutoCapture) {
+        elements.btnAutoCapture.style.display = autoCapture.is_running ? 'none' : '';
+    }
+    if (elements.btnStopAuto) {
+        elements.btnStopAuto.style.display = autoCapture.is_running ? '' : 'none';
+    }
+    
+    // 更新进度面板
+    if (elements.autoCaptureProgress) {
+        elements.autoCaptureProgress.style.display = autoCapture.is_running ? 'block' : 'none';
+    }
+    
+    if (autoCapture.is_running && autoCapture.progress) {
+        const p = autoCapture.progress;
+        
+        if (elements.autoProgressStats) {
+            elements.autoProgressStats.textContent = `${p.completed}/${p.total}`;
+        }
+        if (elements.autoProgressFill) {
+            const percent = p.total > 0 ? (p.completed / p.total) * 100 : 0;
+            elements.autoProgressFill.style.width = `${percent}%`;
+        }
+        if (elements.autoCurrentTarget) {
+            elements.autoCurrentTarget.textContent = p.current_target 
+                ? `${p.current_target.essid} (CH ${p.current_target.channel})`
+                : '--';
+        }
+        if (elements.autoCapturedCount) {
+            elements.autoCapturedCount.textContent = p.captured;
+        }
+        if (elements.autoFailedCount) {
+            elements.autoFailedCount.textContent = p.failed;
         }
     }
 }
@@ -241,15 +321,21 @@ async function loadNetworks() {
 
 // 渲染网络列表
 function renderNetworks() {
-    const filter = elements.filterEncryption.value;
+    const encFilter = elements.filterEncryption ? elements.filterEncryption.value : 'all';
+    const statusFilter = elements.filterAttackStatus ? elements.filterAttackStatus.value : 'all';
     let networks = state.networks;
     
-    // 过滤
-    if (filter !== 'all') {
+    // 过滤加密类型
+    if (encFilter !== 'all') {
         networks = networks.filter(n => {
-            if (filter === 'OPN') return !n.encryption || n.encryption === 'OPN';
-            return n.encryption && n.encryption.includes(filter);
+            if (encFilter === 'OPN') return !n.encryption || n.encryption === 'OPN';
+            return n.encryption && n.encryption.includes(encFilter);
         });
+    }
+    
+    // 过滤攻击状态
+    if (statusFilter !== 'all') {
+        networks = networks.filter(n => n.attack_status === statusFilter);
     }
     
     elements.networkCount.textContent = networks.length;
@@ -273,22 +359,34 @@ function createNetworkCard(network) {
     const encryptionClass = getEncryptionClass(network.encryption);
     const vendorInitial = (network.vendor || 'U')[0].toUpperCase();
     
+    // 攻击状态标识
+    const attackStatus = network.attack_status || 'none';
+    const statusInfo = attackStatusLabels[attackStatus] || attackStatusLabels['none'];
+    let attackBadge = '';
+    if (attackStatus !== 'none') {
+        attackBadge = `<span class="attack-badge ${statusInfo.class}" title="${statusInfo.text}">${statusInfo.icon}</span>`;
+    }
+    
     // 隐藏网络标识
     let essidDisplay = escapeHtml(network.essid);
     let hiddenBadge = '';
     
     if (network.is_hidden) {
         if (network.revealed) {
-            // 已揭示的隐藏网络
             hiddenBadge = '<span class="hidden-badge revealed" title="已揭示的隐藏网络">🔓</span>';
         } else {
-            // 未揭示的隐藏网络
-            hiddenBadge = `<span class="hidden-badge" title="隐藏网络 - 点击尝试揭示" onclick="event.stopPropagation(); revealHiddenSSID('${network.bssid}')">🔒</span>`;
+            hiddenBadge = `<span class="hidden-badge" title="隐藏网络 - 点击尝试揭示" onclick="event.stopPropagation(); revealHiddenSSID('${network.bssid}')"><span>🔒</span>`;
         }
     }
     
+    // 卡片样式类
+    let cardClass = 'wifi-card';
+    if (network.is_hidden) cardClass += ' hidden-network';
+    if (attackStatus === 'captured') cardClass += ' captured';
+    if (attackStatus === 'attacking') cardClass += ' attacking';
+    
     return `
-        <div class="wifi-card ${network.is_hidden ? 'hidden-network' : ''}" data-bssid="${network.bssid}" onclick="selectNetwork(this, '${network.bssid}')">
+        <div class="${cardClass}" data-bssid="${network.bssid}" onclick="selectNetwork(this, '${network.bssid}')">
             <div class="vendor-logo">
                 ${network.logo && network.logo !== 'unknown.svg' 
                     ? `<img src="/logos/${network.logo}" alt="${network.vendor}" onerror="this.parentElement.innerHTML='<span class=\\'vendor-initial\\'>${vendorInitial}</span>'">`
@@ -296,7 +394,7 @@ function createNetworkCard(network) {
                 }
             </div>
             <div class="network-info">
-                <div class="essid">${hiddenBadge}${essidDisplay}</div>
+                <div class="essid">${attackBadge}${hiddenBadge}${essidDisplay}</div>
                 <div class="details">
                     <span class="encryption-badge ${encryptionClass}">${network.encryption || 'OPN'}</span>
                     <span>📡 CH ${network.channel}</span>
@@ -313,8 +411,8 @@ function createNetworkCard(network) {
                 </div>
                 <span style="font-size: 0.75rem; color: var(--text-secondary)">${network.power} dBm</span>
             </div>
-            <button class="capture-btn" onclick="event.stopPropagation(); captureNetwork('${network.bssid}', ${network.channel}, '${escapeHtml(network.essid)}')">
-                捕获
+            <button class="capture-btn" onclick="event.stopPropagation(); captureNetwork('${network.bssid}', ${network.channel}, '${escapeHtml(network.essid)}')" ${attackStatus === 'attacking' ? 'disabled' : ''}>
+                ${attackStatus === 'captured' ? '已捕获' : (attackStatus === 'attacking' ? '攻击中' : '捕获')}
             </button>
         </div>
     `;
@@ -573,6 +671,98 @@ document.addEventListener('click', () => {
 // 过滤网络
 function filterNetworks() {
     renderNetworks();
+}
+
+// ==================== 批量自动捕获 ====================
+
+// 启动自动捕获全部
+async function startAutoCapture() {
+    if (state.isCapturing) {
+        showNotification('正在进行单独捕获，请先停止', 'warning');
+        return;
+    }
+    
+    if (state.isAutoCapturing) {
+        showNotification('批量捕获已在进行中', 'warning');
+        return;
+    }
+    
+    // 获取参数
+    const skipAttacked = true;  // 跳过已攻击的
+    const minPower = -90;       // 最小信号强度
+    
+    try {
+        const response = await fetch('/api/auto-capture', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ 
+                skip_attacked: skipAttacked,
+                min_power: minPower
+            })
+        });
+        
+        const data = await response.json();
+        
+        if (data.success) {
+            state.isAutoCapturing = true;
+            showNotification(`开始批量捕获 ${data.total_targets} 个目标`, 'info');
+        } else {
+            showNotification(data.message || '批量捕获启动失败', 'error');
+        }
+    } catch (error) {
+        console.error('Auto capture error:', error);
+        showNotification('批量捕获请求失败', 'error');
+    }
+}
+
+// 停止自动捕获
+async function stopAutoCapture() {
+    try {
+        const response = await fetch('/api/auto-capture', {
+            method: 'DELETE'
+        });
+        
+        const data = await response.json();
+        
+        if (data.success) {
+            state.isAutoCapturing = false;
+            showNotification('批量捕获已停止', 'info');
+            loadCaptures();
+        } else {
+            showNotification(data.message || '停止失败', 'error');
+        }
+    } catch (error) {
+        console.error('Stop auto capture error:', error);
+        showNotification('停止请求失败', 'error');
+    }
+}
+
+// 清除攻击历史
+async function clearAttackHistory() {
+    if (!confirm('确定要清除所有攻击历史记录吗？清除后已攻击的网络可以被重新攻击。')) {
+        return;
+    }
+    
+    try {
+        const response = await fetch('/api/attack-history', {
+            method: 'DELETE'
+        });
+        
+        const data = await response.json();
+        
+        if (data.success) {
+            showNotification('攻击历史已清除', 'success');
+            // 刷新网络列表以更新状态
+            if (state.networks.length > 0) {
+                renderNetworks();
+            }
+        } else {
+            showNotification(data.message || '清除失败', 'error');
+        }
+    } catch (error) {
+        console.error('Clear history error:', error);
+        showNotification('清除请求失败', 'error');
+    }
 }
 
 // 更新状态

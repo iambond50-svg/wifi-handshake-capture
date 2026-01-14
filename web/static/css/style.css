@@ -1018,3 +1018,175 @@ body {
         text-align: center;
     }
 }
+
+/* ==================== 批量自动捕获 ==================== */
+
+/* 批量捕获进度面板 */
+.auto-capture-progress {
+    background: var(--bg-card);
+    border: 1px solid var(--accent-primary);
+    border-radius: var(--radius-sm);
+    padding: 15px;
+    margin-top: 10px;
+}
+
+.auto-capture-progress h4 {
+    margin-bottom: 10px;
+    font-size: 0.9rem;
+    color: var(--accent-primary);
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.auto-progress-bar {
+    height: 8px;
+    background: var(--bg-secondary);
+    border-radius: 4px;
+    overflow: hidden;
+    margin-bottom: 12px;
+}
+
+.auto-progress-bar .progress-fill {
+    height: 100%;
+    background: linear-gradient(90deg, var(--accent-primary), var(--success));
+    transition: width 0.3s ease;
+    border-radius: 4px;
+}
+
+.auto-progress-stats {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 10px;
+    font-size: 0.85rem;
+}
+
+.auto-progress-stats .stat {
+    text-align: center;
+}
+
+.auto-progress-stats .stat-value {
+    font-weight: 600;
+    font-size: 1.1rem;
+}
+
+.auto-progress-stats .stat-label {
+    color: var(--text-secondary);
+    font-size: 0.75rem;
+}
+
+/* 统计颜色 */
+.text-success {
+    color: var(--success) !important;
+}
+
+.text-danger {
+    color: var(--danger) !important;
+}
+
+.text-warning {
+    color: var(--warning) !important;
+}
+
+.text-info {
+    color: var(--accent-primary) !important;
+}
+
+/* 攻击状态标识 */
+.attack-badge {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    margin-right: 6px;
+    font-size: 0.9rem;
+}
+
+.attack-badge.status-queued {
+    opacity: 0.7;
+}
+
+.attack-badge.status-attacking {
+    animation: attackPulse 0.8s infinite;
+}
+
+.attack-badge.status-captured {
+    color: var(--success);
+}
+
+.attack-badge.status-failed {
+    color: var(--danger);
+}
+
+.attack-badge.status-skipped {
+    color: var(--text-secondary);
+}
+
+@keyframes attackPulse {
+    0%, 100% { opacity: 1; transform: scale(1); }
+    50% { opacity: 0.6; transform: scale(1.1); }
+}
+
+/* 网络卡片攻击状态 */
+.wifi-card.captured {
+    border-left: 3px solid var(--success);
+}
+
+.wifi-card.attacking {
+    border-left: 3px solid var(--warning);
+    animation: attackingGlow 1.5s infinite;
+}
+
+@keyframes attackingGlow {
+    0%, 100% { 
+        box-shadow: inset 0 0 0 1px rgba(255, 193, 7, 0.2);
+    }
+    50% { 
+        box-shadow: inset 0 0 0 1px rgba(255, 193, 7, 0.5);
+    }
+}
+
+/* 捕获按钮状态 */
+.wifi-card.captured .capture-btn {
+    background: var(--success);
+    color: var(--bg-primary);
+    cursor: default;
+}
+
+.wifi-card.attacking .capture-btn {
+    background: var(--warning);
+    color: var(--bg-primary);
+    cursor: not-allowed;
+}
+
+/* 过滤下拉框样式 */
+.filter-select {
+    padding: 8px 12px;
+    background: var(--bg-card);
+    border: 1px solid var(--border-color);
+    border-radius: var(--radius-sm);
+    color: var(--text-primary);
+    font-size: 0.85rem;
+    cursor: pointer;
+    transition: all 0.3s;
+}
+
+.filter-select:hover {
+    border-color: var(--accent-primary);
+}
+
+.filter-select:focus {
+    outline: none;
+    border-color: var(--accent-primary);
+    box-shadow: 0 0 0 2px rgba(0, 212, 255, 0.2);
+}
+
+/* 批量捕获按钮 */
+.btn-auto {
+    background: linear-gradient(135deg, #9c27b0, #7b1fa2);
+    color: white;
+}
+
+.btn-auto:hover:not(:disabled) {
+    transform: translateY(-2px);
+    box-shadow: 0 5px 20px rgba(156, 39, 176, 0.3);
+}

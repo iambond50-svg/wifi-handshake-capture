@@ -192,6 +192,51 @@ def get_hidden_ssid_cache():
         'count': len(cache)
     })
 
+@api_bp.route('/auto-capture', methods=['POST'])
+def start_auto_capture():
+    """开始自动批量捕获"""
+    data = request.json or {}
+    skip_attacked = data.get('skip_attacked', True)
+    min_power = data.get('min_power', -80)
+    
+    if scanner.start_auto_capture_all(skip_attacked=skip_attacked, min_power=min_power):
+        return jsonify({
+            'success': True, 
+            'message': '批量捕获已开始',
+            'status': scanner.get_auto_capture_status()
+        })
+    else:
+        return jsonify({
+            'success': False, 
+            'message': '无法开始批量捕获，可能正在捕获中或没有可用目标'
+        }), 400
+
+@api_bp.route('/auto-capture', methods=['DELETE'])
+def stop_auto_capture():
+    """停止自动批量捕获"""
+    scanner.stop_auto_capture_all()
+    return jsonify({'success': True, 'message': '批量捕获已停止'})
+
+@api_bp.route('/auto-capture/status')
+def get_auto_capture_status():
+    """获取批量捕获状态"""
+    return jsonify(scanner.get_auto_capture_status())
+
+@api_bp.route('/attack-history')
+def get_attack_history():
+    """获取攻击历史"""
+    history = scanner.get_attack_history()
+    return jsonify({
+        'history': history,
+        'count': len(history)
+    })
+
+@api_bp.route('/attack-history', methods=['DELETE'])
+def clear_attack_history():
+    """清除攻击历史"""
+    scanner.clear_attack_history()
+    return jsonify({'success': True, 'message': '攻击历史已清除'})
+
 @api_bp.route('/stream')
 def event_stream():
     """SSE 实时事件流"""
@@ -202,11 +247,14 @@ def event_stream():
             networks = oui_db.enrich_networks(networks)
             
             hidden_cache = scanner.get_hidden_ssid_cache()
+            auto_capture_status = scanner.get_auto_capture_status()
+            
             data = {
                 'status': status,
-                'networks': networks[:20],  # 只发送前 20 个
+                'networks': networks[:30],  # 发送前 30 个
                 'timestamp': time.time(),
-                'hidden_ssid_count': len(hidden_cache)
+                'hidden_ssid_count': len(hidden_cache),
+                'auto_capture': auto_capture_status
             }
             
             yield f"data: {json.dumps(data)}\n\n"

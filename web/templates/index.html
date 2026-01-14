@@ -40,12 +40,35 @@
                     <svg viewBox="0 0 24 24"><path d="M6 6h12v12H6z"/></svg>
                     停止扫描
                 </button>
+                <button class="btn btn-warning" id="btn-auto-capture" onclick="startAutoCapture()">
+                    <svg viewBox="0 0 24 24"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-2 14.5v-9l6 4.5-6 4.5z"/></svg>
+                    自动捕获全部
+                </button>
+                <button class="btn btn-danger" id="btn-stop-auto" onclick="stopAutoCapture()" style="display: none;">
+                    <svg viewBox="0 0 24 24"><path d="M6 6h12v12H6z"/></svg>
+                    停止批量
+                </button>
             </div>
             <div class="scan-progress" id="scan-progress" style="display: none;">
                 <div class="progress-bar">
                     <div class="progress-fill" id="progress-fill"></div>
                 </div>
                 <span class="progress-text" id="progress-text">扫描中...</span>
+            </div>
+            <!-- 批量捕获进度 -->
+            <div class="auto-capture-progress" id="auto-capture-progress" style="display: none;">
+                <div class="auto-progress-header">
+                    <span class="auto-progress-title">📡 批量捕获进行中</span>
+                    <span class="auto-progress-stats" id="auto-progress-stats">0/0</span>
+                </div>
+                <div class="progress-bar">
+                    <div class="progress-fill auto-fill" id="auto-progress-fill"></div>
+                </div>
+                <div class="auto-progress-info">
+                    <span>当前目标: <strong id="auto-current-target">--</strong></span>
+                    <span>成功: <strong id="auto-captured-count" class="text-success">0</strong></span>
+                    <span>失败: <strong id="auto-failed-count" class="text-danger">0</strong></span>
+                </div>
             </div>
         </section>
 
@@ -67,6 +90,16 @@
                             <option value="WEP">WEP</option>
                             <option value="OPN">开放</option>
                         </select>
+                        <select id="filter-attack-status" onchange="filterNetworks()">
+                            <option value="all">所有状态</option>
+                            <option value="none">未攻击</option>
+                            <option value="captured">已捕获</option>
+                            <option value="failed">攻击失败</option>
+                            <option value="attacking">攻击中</option>
+                        </select>
+                        <button class="btn-icon" onclick="clearAttackHistory()" title="清除攻击记录">
+                            <svg viewBox="0 0 24 24"><path d="M6 19c0 1.1.9 2 2 2h8c1.1 0 2-.9 2-2V7H6v12zM19 4h-3.5l-1-1h-5l-1 1H5v2h14V4z"/></svg>
+                        </button>
                     </div>
                 </div>
                 <div class="wifi-list" id="wifi-list">
