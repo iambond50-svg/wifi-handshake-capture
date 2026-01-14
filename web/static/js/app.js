@@ -467,23 +467,15 @@ function renderCaptures() {
                 <div class="file-meta">${formatFileSize(file.size)} · ${formatDate(file.created)}</div>
             </div>
             <span class="handshake-indicator ${file.has_handshake ? 'success' : 'pending'}">
-                ${file.has_handshake ? '✓ 握手包' : '无握手包'}
+                ${file.has_handshake ? '✓' : '×'}
             </span>
-            <div class="file-actions">
-                <div class="download-dropdown">
-                    <button class="download-btn" onclick="toggleDownloadMenu(event, '${file.filename}')" title="下载">
-                        <svg viewBox="0 0 24 24"><path d="M19 9h-4V3H9v6H5l7 7 7-7zM5 18v2h14v-2H5z"/></svg>
-                    </button>
-                    <div class="download-menu" id="menu-${file.filename.replace(/[^a-zA-Z0-9]/g, '_')}">
-                        <a onclick="downloadCapture('${file.filename}', 'cap')">CAP (原始格式)</a>
-                        <a onclick="downloadCapture('${file.filename}', 'hc22000')">HC22000 (Hashcat)</a>
-                        <a onclick="downloadCapture('${file.filename}', 'pmkid')">PMKID</a>
-                    </div>
-                </div>
-                <button class="delete-btn" onclick="deleteCapture('${file.filename}')" title="删除">
-                    <svg viewBox="0 0 24 24"><path d="M6 19c0 1.1.9 2 2 2h8c1.1 0 2-.9 2-2V7H6v12zM19 4h-3.5l-1-1h-5l-1 1H5v2h14V4z"/></svg>
-                </button>
+            <div class="format-btns">
+                <button class="format-btn" onclick="downloadCapture('${file.filename}', 'cap')" title="下载 CAP 格式">CAP</button>
+                <button class="format-btn" onclick="downloadCapture('${file.filename}', 'hc22000')" title="下载 Hashcat 格式">HC</button>
             </div>
+            <button class="delete-btn" onclick="deleteCapture('${file.filename}')" title="删除">
+                <svg viewBox="0 0 24 24"><path d="M6 19c0 1.1.9 2 2 2h8c1.1 0 2-.9 2-2V7H6v12zM19 4h-3.5l-1-1h-5l-1 1H5v2h14V4z"/></svg>
+            </button>
         </div>
     `}).join('');
 }
