@@ -79,12 +79,21 @@ function handleStreamData(data) {
         renderNetworks();
     }
     
-    // 检查握手包捕获
+// 检查握手包捕获
     if (data.status && data.status.current_target) {
         const target = data.status.current_target;
         if (target.handshake && target.status === 'success') {
-            showNotification('成功捕获握手包！', 'success');
+            showNotification('成功捕获握手包！已自动停止监听', 'success');
             loadCaptures();
+            
+            // 自动清理前端状态
+            state.isCapturing = false;
+            state.currentTarget = null;
+            if (state.captureTimer) {
+                clearInterval(state.captureTimer);
+                state.captureTimer = null;
+            }
+            elements.captureSection.style.display = 'none';
         }
     }
 }
@@ -421,17 +430,52 @@ function renderCaptures() {
             <span class="handshake-indicator ${file.has_handshake ? 'success' : 'pending'}">
                 ${file.has_handshake ? '✓ 握手包' : '无握手包'}
             </span>
-            <button class="download-btn" onclick="downloadCapture('${file.filename}')" title="下载">
-                <svg viewBox="0 0 24 24"><path d="M19 9h-4V3H9v6H5l7 7 7-7zM5 18v2h14v-2H5z"/></svg>
-            </button>
+            <div class="download-dropdown">
+                <button class="download-btn" onclick="toggleDownloadMenu(event, '${file.filename}')" title="下载">
+                    <svg viewBox="0 0 24 24"><path d="M19 9h-4V3H9v6H5l7 7 7-7zM5 18v2h14v-2H5z"/></svg>
+                    <span class="dropdown-arrow">▼</span>
+                </button>
+                <div class="download-menu" id="menu-${file.filename.replace(/[^a-zA-Z0-9]/g, '_')}">
+                    <a onclick="downloadCapture('${file.filename}', 'cap')">CAP (原始格式)</a>
+                    <a onclick="downloadCapture('${file.filename}', 'hc22000')">HC22000 (Hashcat)</a>
+                    <a onclick="downloadCapture('${file.filename}', 'pmkid')">PMKID</a>
+                </div>
+            </div>
         </div>
     `).join('');
 }
 
 // 下载捕获文件
-function downloadCapture(filename) {
-    window.open(`/captures/${filename}`, '_blank');
+function downloadCapture(filename, format = 'cap') {
+    closeAllDownloadMenus();
+    window.location.href = `/api/captures/download/${filename}?format=${format}`;
 }
+
+// 切换下载菜单
+function toggleDownloadMenu(event, filename) {
+    event.stopPropagation();
+    const menuId = 'menu-' + filename.replace(/[^a-zA-Z0-9]/g, '_');
+    const menu = document.getElementById(menuId);
+    const wasVisible = menu.classList.contains('show');
+    
+    closeAllDownloadMenus();
+    
+    if (!wasVisible) {
+        menu.classList.add('show');
+    }
+}
+
+// 关闭所有下载菜单
+function closeAllDownloadMenus() {
+    document.querySelectorAll('.download-menu').forEach(menu => {
+        menu.classList.remove('show');
+    });
+}
+
+// 点击其他地方关闭菜单
+document.addEventListener('click', () => {
+    closeAllDownloadMenus();
+});
 
 // 过滤网络
 function filterNetworks() {

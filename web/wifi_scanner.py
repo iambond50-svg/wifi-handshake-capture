@@ -270,6 +270,12 @@ class WiFiScanner:
                             self.current_target['status'] = 'success'
                             self.attack_running = False
                             print(f"[+] 捕获到握手包: {essid}")
+                            
+                            # 自动转换为 hc22000 格式
+                            self._convert_to_hashcat(cap_file)
+                            
+                            # 自动停止捕获
+                            self._stop_capture_internal()
                             break
                             
             except Exception as e:
@@ -400,6 +406,93 @@ class WiFiScanner:
         except:
             pass
     
+    def _stop_capture_internal(self):
+        """内部停止捕获（捕获成功后调用）"""
+        if self.capture_process:
+            try:
+                self.capture_process.terminate()
+                self.capture_process.wait(timeout=5)
+            except:
+                try:
+                    self.capture_process.kill()
+                except:
+                    pass
+            self.capture_process = None
+        
+        self.is_capturing = False
+        print("[+] 捕获已自动停止")
+    
+    def _convert_to_hashcat(self, cap_file):
+        """转换 cap 文件为 hashcat 格式 (hc22000)"""
+        try:
+            hc_file = cap_file.replace('.cap', '.hc22000')
+            # 使用 hcxpcapngtool 转换
+            result = subprocess.run(
+                ["hcxpcapngtool", "-o", hc_file, cap_file],
+                capture_output=True,
+                text=True,
+                timeout=30
+            )
+            if os.path.exists(hc_file):
+                print(f"[+] 已转换为 hashcat 格式: {hc_file}")
+                return hc_file
+        except Exception as e:
+            print(f"[-] 转换失败: {e}")
+        return None
+    
+    def convert_capture(self, cap_file, format_type):
+        """转换捕获文件为指定格式"""
+        if not os.path.exists(cap_file):
+            return None
+        
+        base_name = cap_file.rsplit('.', 1)[0]
+        
+        if format_type == 'hc22000':
+            output_file = f"{base_name}.hc22000"
+            if os.path.exists(output_file):
+                return output_file
+            try:
+                subprocess.run(
+                    ["hcxpcapngtool", "-o", output_file, cap_file],
+                    capture_output=True, timeout=30
+                )
+                if os.path.exists(output_file):
+                    return output_file
+            except:
+                pass
+        
+        elif format_type == 'pmkid':
+            output_file = f"{base_name}.pmkid"
+            if os.path.exists(output_file):
+                return output_file
+            try:
+                subprocess.run(
+                    ["hcxpcapngtool", "-k", output_file, cap_file],
+                    capture_output=True, timeout=30
+                )
+                if os.path.exists(output_file):
+                    return output_file
+            except:
+                pass
+        
+        elif format_type == 'hccapx':
+            output_file = f"{base_name}.hccapx"
+            if os.path.exists(output_file):
+                return output_file
+            try:
+                # 先尝试使用 hcxpcapngtool
+                subprocess.run(
+                    ["hcxpcapngtool", "-o", f"{base_name}.hc22000", cap_file],
+                    capture_output=True, timeout=30
+                )
+                # hccapx 是旧格式，可以用 cap2hccapx 或直接用 hc22000
+                if os.path.exists(f"{base_name}.hc22000"):
+                    return f"{base_name}.hc22000"  # 返回 hc22000 作为替代
+            except:
+                pass
+        
+        return None
+    
     def stop_capture(self):
         """停止捕获"""
         self.attack_running = False
@@ -453,12 +546,23 @@ class WiFiScanner:
                 has_handshake = False
             
             stat = f.stat()
+            base_name = str(f).rsplit('.', 1)[0]
+            
+            # 检查可用的格式
+            available_formats = ['cap']  # 原始格式总是可用
+            if os.path.exists(f"{base_name}.hc22000"):
+                available_formats.append('hc22000')
+            if os.path.exists(f"{base_name}.pmkid"):
+                available_formats.append('pmkid')
+            
             captures.append({
                 'filename': f.name,
                 'path': str(f),
                 'size': stat.st_size,
                 'created': datetime.fromtimestamp(stat.st_ctime).isoformat(),
-                'has_handshake': has_handshake
+                'has_handshake': has_handshake,
+                'available_formats': available_formats,
+                'supported_formats': ['cap', 'hc22000', 'pmkid']  # 支持转换的格式
             })
         
         captures.sort(key=lambda x: x['created'], reverse=True)

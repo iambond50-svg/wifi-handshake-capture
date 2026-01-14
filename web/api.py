@@ -1,9 +1,10 @@
 #!/usr/bin/env python3
 """API 路由"""
 
-from flask import Blueprint, jsonify, request, Response
+from flask import Blueprint, jsonify, request, Response, send_file
 import json
 import time
+import os
 
 from wifi_scanner import scanner
 from oui_database import oui_db
@@ -93,6 +94,55 @@ def get_captures():
         'captures': captures,
         'count': len(captures)
     })
+
+@api_bp.route('/captures/download/<filename>')
+def download_capture(filename):
+    """下载捕获文件"""
+    format_type = request.args.get('format', 'cap')
+    
+    # 查找原始 cap 文件
+    cap_path = scanner.capture_dir / filename
+    if not cap_path.exists():
+        return jsonify({'error': '文件不存在'}), 404
+    
+    if format_type == 'cap':
+        return send_file(
+            str(cap_path),
+            as_attachment=True,
+            download_name=filename
+        )
+    
+    # 转换为其他格式
+    converted_file = scanner.convert_capture(str(cap_path), format_type)
+    if converted_file and os.path.exists(converted_file):
+        download_name = filename.rsplit('.', 1)[0] + '.' + format_type
+        return send_file(
+            converted_file,
+            as_attachment=True,
+            download_name=download_name
+        )
+    else:
+        return jsonify({'error': f'无法转换为 {format_type} 格式'}), 400
+
+@api_bp.route('/captures/convert/<filename>', methods=['POST'])
+def convert_capture(filename):
+    """转换捕获文件格式"""
+    data = request.json or {}
+    format_type = data.get('format', 'hc22000')
+    
+    cap_path = scanner.capture_dir / filename
+    if not cap_path.exists():
+        return jsonify({'success': False, 'message': '文件不存在'}), 404
+    
+    converted_file = scanner.convert_capture(str(cap_path), format_type)
+    if converted_file:
+        return jsonify({
+            'success': True,
+            'message': f'转换成功',
+            'file': os.path.basename(converted_file)
+        })
+    else:
+        return jsonify({'success': False, 'message': '转换失败'}), 400
 
 @api_bp.route('/stream')
 def event_stream():

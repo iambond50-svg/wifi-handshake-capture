@@ -618,6 +618,80 @@ body {
     fill: var(--text-primary);
 }
 
+/* Download Dropdown */
+.download-dropdown {
+    position: relative;
+}
+
+.download-dropdown .download-btn {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    padding: 8px 12px;
+    background: transparent;
+    border: 1px solid var(--border-color);
+    border-radius: var(--radius-sm);
+    cursor: pointer;
+    transition: all 0.3s;
+}
+
+.download-dropdown .download-btn:hover {
+    background: var(--accent-secondary);
+    border-color: var(--accent-primary);
+}
+
+.download-dropdown .dropdown-arrow {
+    font-size: 0.6rem;
+    color: var(--text-secondary);
+}
+
+.download-menu {
+    position: absolute;
+    top: 100%;
+    right: 0;
+    margin-top: 5px;
+    background: var(--bg-card);
+    border: 1px solid var(--border-color);
+    border-radius: var(--radius-sm);
+    box-shadow: var(--shadow);
+    min-width: 160px;
+    z-index: 100;
+    display: none;
+}
+
+.download-menu.show {
+    display: block;
+    animation: fadeIn 0.2s ease;
+}
+
+@keyframes fadeIn {
+    from { opacity: 0; transform: translateY(-5px); }
+    to { opacity: 1; transform: translateY(0); }
+}
+
+.download-menu a {
+    display: block;
+    padding: 10px 15px;
+    color: var(--text-primary);
+    text-decoration: none;
+    font-size: 0.85rem;
+    cursor: pointer;
+    transition: background 0.2s;
+}
+
+.download-menu a:hover {
+    background: var(--bg-hover);
+    color: var(--accent-primary);
+}
+
+.download-menu a:first-child {
+    border-radius: var(--radius-sm) var(--radius-sm) 0 0;
+}
+
+.download-menu a:last-child {
+    border-radius: 0 0 var(--radius-sm) var(--radius-sm);
+}
+
 /* Empty State */
 .empty-state {
     display: flex;
