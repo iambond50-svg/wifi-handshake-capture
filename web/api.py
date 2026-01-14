@@ -37,10 +37,13 @@ def get_networks():
     """获取网络列表"""
     networks = scanner.get_networks()
     networks = oui_db.enrich_networks(networks)
+    hidden_cache = scanner.get_hidden_ssid_cache()
     return jsonify({
         'networks': networks,
         'count': len(networks),
-        'is_scanning': scanner.is_scanning
+        'is_scanning': scanner.is_scanning,
+        'hidden_ssid_count': len(hidden_cache),
+        'hidden_ssid_cache': hidden_cache
     })
 
 @api_bp.route('/capture', methods=['POST'])
@@ -163,6 +166,32 @@ def cleanup_files():
         'deleted_count': deleted_count
     })
 
+@api_bp.route('/hidden-ssid/<bssid>', methods=['GET'])
+def reveal_hidden_ssid(bssid):
+    """尝试揭示隐藏网络 SSID"""
+    ssid = scanner.reveal_hidden_ssid(bssid)
+    if ssid:
+        return jsonify({
+            'success': True,
+            'bssid': bssid,
+            'ssid': ssid
+        })
+    else:
+        return jsonify({
+            'success': False,
+            'message': '未能获取隐藏 SSID，请等待设备连接'
+        })
+
+@api_bp.route('/hidden-ssid', methods=['GET'])
+def get_hidden_ssid_cache():
+    """获取所有已发现的隐藏 SSID"""
+    cache = scanner.get_hidden_ssid_cache()
+    return jsonify({
+        'success': True,
+        'cache': cache,
+        'count': len(cache)
+    })
+
 @api_bp.route('/stream')
 def event_stream():
     """SSE 实时事件流"""
@@ -172,10 +201,12 @@ def event_stream():
             networks = scanner.get_networks()
             networks = oui_db.enrich_networks(networks)
             
+            hidden_cache = scanner.get_hidden_ssid_cache()
             data = {
                 'status': status,
                 'networks': networks[:20],  # 只发送前 20 个
-                'timestamp': time.time()
+                'timestamp': time.time(),
+                'hidden_ssid_count': len(hidden_cache)
             }
             
             yield f"data: {json.dumps(data)}\n\n"

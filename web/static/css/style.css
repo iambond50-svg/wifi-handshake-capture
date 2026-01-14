@@ -434,6 +434,35 @@ body {
     box-shadow: 0 5px 15px rgba(0, 212, 255, 0.3);
 }
 
+/* 隐藏网络样式 */
+.wifi-card.hidden-network {
+    border-style: dashed;
+    border-color: var(--text-secondary);
+}
+
+.wifi-card.hidden-network:hover {
+    border-color: var(--warning);
+}
+
+.hidden-badge {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    margin-right: 6px;
+    cursor: pointer;
+    transition: transform 0.2s;
+    font-size: 0.9em;
+}
+
+.hidden-badge:hover:not(.revealed) {
+    transform: scale(1.2);
+}
+
+.hidden-badge.revealed {
+    cursor: default;
+    color: var(--success);
+}
+
 /* Encryption Badge */
 .encryption-badge {
     display: inline-block;
@@ -567,8 +596,8 @@ body {
 
 /* Capture Files */
 .capture-files {
-    max-height: 300px;
-    overflow: visible;
+    max-height: 400px;
+    overflow-y: auto;
 }
 
 .capture-file {

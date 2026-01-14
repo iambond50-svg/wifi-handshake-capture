@@ -26,6 +26,9 @@ class WiFiScanner:
         self.scan_file = None
         self.attack_thread = None
         self.attack_running = False
+        self.hidden_ssid_cache = {}  # BSSID -> SSID 映射 (用于隐藏网络)
+        self.probe_listener_process = None
+        self.probe_listener_running = False
         
     def find_interface(self):
         """查找无线网卡"""
@@ -99,11 +102,15 @@ class WiFiScanner:
                     ["airodump-ng",
                      "--write", str(self.scan_file),
                      "--write-interval", "3",
-                     "--output-format", "csv",
+                     "--output-format", "csv,pcap",  # 添加 pcap 用于提取隐藏 SSID
                      self.mon_interface],
                     stdout=subprocess.DEVNULL,
                     stderr=subprocess.DEVNULL
                 )
+                
+                # 启动 Probe Request 监听线程
+                self._start_probe_listener()
+                
                 time.sleep(duration)
             finally:
                 self.stop_scan()
@@ -114,6 +121,9 @@ class WiFiScanner:
     
     def stop_scan(self):
         """停止扫描"""
+        # 停止 Probe 监听
+        self._stop_probe_listener()
+        
         if self.scan_process:
             try:
                 self.scan_process.terminate()
@@ -169,6 +179,13 @@ class WiFiScanner:
                     if essid == '':
                         essid = '<Hidden>'
                     
+                    # 检查是否为隐藏网络
+                    is_hidden = (essid == '<Hidden>')
+                    
+                    # 尝试从缓存中获取隐藏网络的真实 SSID
+                    if is_hidden and bssid in self.hidden_ssid_cache:
+                        essid = f"🔓 {self.hidden_ssid_cache[bssid]}"
+                    
                     network = {
                         'bssid': bssid,
                         'channel': channel,
@@ -178,7 +195,9 @@ class WiFiScanner:
                         'auth': fields[7].strip() if len(fields) > 7 else '',
                         'essid': essid,
                         'clients': 0,
-                        'last_seen': time.time()
+                        'last_seen': time.time(),
+                        'is_hidden': is_hidden,
+                        'revealed': bssid in self.hidden_ssid_cache
                     }
                     
                     # 合并到缓存，更新已有网络的信号强度
@@ -405,6 +424,92 @@ class WiFiScanner:
             subprocess.run(["pkill", "-f", "aireplay-ng"], capture_output=True, timeout=5)
         except:
             pass
+    
+    def _start_probe_listener(self):
+        """启动 Probe Request 监听 - 用于揭示隐藏网络名称"""
+        if self.probe_listener_running:
+            return
+        
+        self.probe_listener_running = True
+        
+        def probe_thread():
+            """定期解析扫描捕获文件提取隐藏 SSID"""
+            while self.probe_listener_running and self.is_scanning:
+                try:
+                    if self.scan_file:
+                        cap_file = f"{self.scan_file}-01.cap"
+                        if os.path.exists(cap_file):
+                            self._extract_hidden_ssid_from_cap(cap_file)
+                except Exception as e:
+                    print(f"Probe listener error: {e}")
+                time.sleep(5)  # 每 5 秒检查一次
+            
+            self.probe_listener_running = False
+        
+        thread = threading.Thread(target=probe_thread, daemon=True)
+        thread.start()
+    
+    def _stop_probe_listener(self):
+        """停止 Probe Request 监听"""
+        self.probe_listener_running = False
+    
+    def _extract_hidden_ssid_from_cap(self, cap_file):
+        """从 cap 文件中提取隐藏网络的 SSID (通过 Probe/Association Request)"""
+        try:
+            # 使用 tshark 提取 Probe Request (type_subtype=4), Association Request (0), Reassociation Request (2)
+            # 以及 Probe Response (5) 中的 SSID
+            result = subprocess.run(
+                ["tshark", "-r", cap_file, 
+                 "-Y", "wlan.fc.type_subtype == 0 || wlan.fc.type_subtype == 2 || wlan.fc.type_subtype == 4 || wlan.fc.type_subtype == 5",
+                 "-T", "fields", 
+                 "-e", "wlan.ta",      # 发送方 MAC
+                 "-e", "wlan.bssid",   # AP 的 BSSID
+                 "-e", "wlan.ssid"],   # SSID (十六进制)
+                capture_output=True,
+                text=True,
+                timeout=15
+            )
+            
+            if result.returncode == 0 and result.stdout.strip():
+                for line in result.stdout.strip().split('\n'):
+                    parts = line.split('\t')
+                    if len(parts) >= 3:
+                        ta_mac = parts[0].strip().upper()
+                        bssid = parts[1].strip().upper()
+                        ssid_hex = parts[2].strip()
+                        
+                        # 解码十六进制 SSID
+                        if ssid_hex and bssid and ':' in bssid:
+                            try:
+                                ssid = bytes.fromhex(ssid_hex).decode('utf-8', errors='replace')
+                                # 忽略空 SSID 或广播 Probe
+                                if ssid and ssid.strip() and len(ssid) > 0:
+                                    # 保存映射
+                                    if bssid not in self.hidden_ssid_cache:
+                                        self.hidden_ssid_cache[bssid] = ssid
+                                        print(f"[+] 发现隐藏网络: {bssid} -> {ssid}")
+                            except:
+                                pass
+        except Exception as e:
+            print(f"tshark extraction error: {e}")
+    
+    def reveal_hidden_ssid(self, bssid):
+        """手动尝试揭示特定隐藏网络的 SSID"""
+        # 检查缓存
+        if bssid.upper() in self.hidden_ssid_cache:
+            return self.hidden_ssid_cache[bssid.upper()]
+        
+        # 尝试从最近的捕获文件提取
+        if self.scan_file:
+            cap_file = f"{self.scan_file}-01.cap"
+            if os.path.exists(cap_file):
+                self._extract_hidden_ssid_from_cap(cap_file)
+        
+        return self.hidden_ssid_cache.get(bssid.upper())
+    
+    def get_hidden_ssid_cache(self):
+        """获取已发现的隐藏网络映射"""
+        return dict(self.hidden_ssid_cache)
     
     def _stop_capture_internal(self):
         """内部停止捕获（捕获成功后调用）"""

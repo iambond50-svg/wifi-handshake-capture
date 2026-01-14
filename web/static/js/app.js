@@ -273,8 +273,22 @@ function createNetworkCard(network) {
     const encryptionClass = getEncryptionClass(network.encryption);
     const vendorInitial = (network.vendor || 'U')[0].toUpperCase();
     
+    // 隐藏网络标识
+    let essidDisplay = escapeHtml(network.essid);
+    let hiddenBadge = '';
+    
+    if (network.is_hidden) {
+        if (network.revealed) {
+            // 已揭示的隐藏网络
+            hiddenBadge = '<span class="hidden-badge revealed" title="已揭示的隐藏网络">🔓</span>';
+        } else {
+            // 未揭示的隐藏网络
+            hiddenBadge = `<span class="hidden-badge" title="隐藏网络 - 点击尝试揭示" onclick="event.stopPropagation(); revealHiddenSSID('${network.bssid}')">🔒</span>`;
+        }
+    }
+    
     return `
-        <div class="wifi-card" data-bssid="${network.bssid}" onclick="selectNetwork(this, '${network.bssid}')">
+        <div class="wifi-card ${network.is_hidden ? 'hidden-network' : ''}" data-bssid="${network.bssid}" onclick="selectNetwork(this, '${network.bssid}')">
             <div class="vendor-logo">
                 ${network.logo && network.logo !== 'unknown.svg' 
                     ? `<img src="/logos/${network.logo}" alt="${network.vendor}" onerror="this.parentElement.innerHTML='<span class=\\'vendor-initial\\'>${vendorInitial}</span>'">`
@@ -282,7 +296,7 @@ function createNetworkCard(network) {
                 }
             </div>
             <div class="network-info">
-                <div class="essid">${escapeHtml(network.essid)}</div>
+                <div class="essid">${hiddenBadge}${essidDisplay}</div>
                 <div class="details">
                     <span class="encryption-badge ${encryptionClass}">${network.encryption || 'OPN'}</span>
                     <span>📡 CH ${network.channel}</span>
@@ -645,6 +659,27 @@ function formatDate(isoString) {
         hour: '2-digit',
         minute: '2-digit'
     });
+}
+
+// 尝试揭示隐藏 SSID
+async function revealHiddenSSID(bssid) {
+    try {
+        showNotification('正在尝试揭示隐藏网络...', 'info');
+        
+        const response = await fetch(`/api/hidden-ssid/${bssid}`);
+        const data = await response.json();
+        
+        if (data.success && data.ssid) {
+            showNotification(`揭示成功: ${data.ssid}`, 'success');
+            // 重新加载网络列表以更新显示
+            loadNetworks();
+        } else {
+            showNotification(data.message || '未能揭示，请等待设备重连', 'warning');
+        }
+    } catch (error) {
+        console.error('Reveal hidden SSID error:', error);
+        showNotification('揭示请求失败', 'error');
+    }
 }
 
 // 模态框函数
