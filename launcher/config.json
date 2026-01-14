@@ -1,0 +1,12 @@
+{
+  "vm_name": "wifi-capture",
+  "vm_ip": "192.168.200.10",
+  "web_port": 5000,
+  "vm_username": "root",
+  "vm_password": "wifi-capture",
+  "ova_path": "",
+  "vmx_path": "",
+  "auto_open_browser": true,
+  "vmnet": "vmnet1",
+  "usb_vendor_ids": ["148f", "0bda", "0cf3", "0e8d", "2357"]
+}

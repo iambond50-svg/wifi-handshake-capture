@@ -184,6 +184,56 @@ aircrack-ng -w wordlist.txt captures/handshake_*.cap
 aircrack-ng -j output captures/handshake_*.cap
 ```
 
+---
+
+## 方案二：VMware 自动化部署（推荐）
+
+预配置的 Alpine Linux 镜像 + 一键启动脚本。
+
+### 特点
+- 🚀 一键启动，自动打开浏览器
+- 📦 预配置镜像，无需手动安装
+- 🔌 USB 无线网卡自动直通
+- 🌐 固定 IP (192.168.200.10)，开机自启 Web 服务
+
+### 使用方法
+
+```powershell
+# 1. 导入镜像（首次使用）
+launcher\launcher.py import wifi-capture.ova
+
+# 2. 启动
+launcher\start.bat
+
+# 3. 停止
+launcher\stop.bat
+```
+
+### 构建自定义镜像
+
+需要安装 [Packer](https://www.packer.io/)：
+
+```powershell
+cd build\packer
+packer build alpine.pkr.hcl
+```
+
+### 项目结构
+
+```
+wifi-handshake-capture/
+├── launcher/               # Windows 启动器
+│   ├── launcher.py         # 主程序
+│   ├── vmware_api.py       # VMware API 封装
+│   ├── start.bat           # 一键启动
+│   └── stop.bat            # 一键停止
+├── build/                  # 镜像构建
+│   ├── packer/             # Packer 配置
+│   └── output/             # 输出镜像
+├── web/                    # Web 控制面板
+└── data/                   # OUI 数据库
+```
+
 ## License
 
 MIT License - 仅供教育目的使用
