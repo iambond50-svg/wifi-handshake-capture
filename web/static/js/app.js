@@ -316,7 +316,7 @@ async function captureNetwork(bssid, channel, essid) {
             showCaptureSection();
             startCaptureTimer();
             showNotification(`开始捕获 ${essid}`, 'info');
-        }
+        } else {
             showNotification(data.message || '捕获启动失败', 'error');
         }
     } catch (error) {
