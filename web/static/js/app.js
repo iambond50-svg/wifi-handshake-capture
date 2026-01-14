@@ -11,7 +11,8 @@ const state = {
     currentTarget: null,
     eventSource: null,
     captureTimer: null,
-    captureStartTime: null
+    captureStartTime: null,
+    handshakeNotified: false  // 防止重复通知
 };
 
 // DOM 元素
@@ -82,7 +83,8 @@ function handleStreamData(data) {
 // 检查握手包捕获
     if (data.status && data.status.current_target) {
         const target = data.status.current_target;
-        if (target.handshake && target.status === 'success') {
+        if (target.handshake && target.status === 'success' && !state.handshakeNotified) {
+            state.handshakeNotified = true;  // 标记已通知
             showNotification('成功捕获握手包！已自动停止监听', 'success');
             loadCaptures();
             
@@ -310,10 +312,11 @@ async function captureNetwork(bssid, channel, essid) {
             state.isCapturing = true;
             state.currentTarget = { bssid, channel, essid };
             state.captureStartTime = Date.now();
+            state.handshakeNotified = false;  // 重置通知标志
             showCaptureSection();
             startCaptureTimer();
             showNotification(`开始捕获 ${essid}`, 'info');
-        } else {
+        }
             showNotification(data.message || '捕获启动失败', 'error');
         }
     } catch (error) {
