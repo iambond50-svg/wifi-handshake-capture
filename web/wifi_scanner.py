@@ -582,6 +582,70 @@ class WiFiScanner:
             'attack_count': getattr(self, '_attack_count', 0)
         }
     
+    def delete_capture(self, filename):
+        """删除捕获文件"""
+        try:
+            cap_path = self.capture_dir / filename
+            if not cap_path.exists():
+                return False
+            
+            # 删除主文件
+            cap_path.unlink()
+            
+            # 删除相关文件 (csv, hc22000, pmkid 等)
+            base_name = str(cap_path).rsplit('.', 1)[0]
+            for ext in ['.csv', '.hc22000', '.pmkid', '.hccapx']:
+                related_file = Path(base_name + ext)
+                if related_file.exists():
+                    related_file.unlink()
+            
+            # 删除同名的无后缀文件
+            base_without_num = base_name.replace('-01', '')
+            for f in self.capture_dir.glob(f"{Path(base_without_num).name}*"):
+                try:
+                    f.unlink()
+                except:
+                    pass
+            
+            return True
+        except Exception as e:
+            print(f"Delete error: {e}")
+            return False
+    
+    def cleanup_old_files(self):
+        """清理旧文件 - 删除无握手包的捕获和扫描文件"""
+        deleted_count = 0
+        
+        try:
+            # 删除无握手包的捕获文件
+            for f in self.capture_dir.glob("handshake_*-01.cap"):
+                try:
+                    result = subprocess.run(
+                        ["aircrack-ng", str(f)],
+                        capture_output=True,
+                        text=True,
+                        timeout=10
+                    )
+                    if "1 handshake" not in result.stdout:
+                        # 没有握手包，删除
+                        self.delete_capture(f.name)
+                        deleted_count += 1
+                except:
+                    pass
+            
+            # 删除扫描文件
+            for f in self.capture_dir.glob("scan_*.csv"):
+                try:
+                    f.unlink()
+                    deleted_count += 1
+                except:
+                    pass
+            
+        except Exception as e:
+            print(f"Cleanup error: {e}")
+        
+        return deleted_count
+    
     def cleanup(self):
         """清理资源"""
         self.stop_scan()

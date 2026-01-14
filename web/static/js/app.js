@@ -28,6 +28,7 @@ const elements = {
     captureEssid: document.getElementById('capture-essid'),
     captureBssid: document.getElementById('capture-bssid'),
     captureTime: document.getElementById('capture-time'),
+    attackStatus: document.getElementById('attack-status'),
     handshakeStatus: document.getElementById('handshake-status'),
     captureFiles: document.getElementById('capture-files'),
     captureCount: document.getElementById('capture-count'),
@@ -35,6 +36,15 @@ const elements = {
     scanStatus: document.getElementById('scan-status'),
     filterEncryption: document.getElementById('filter-encryption'),
     notifications: document.getElementById('notifications')
+};
+
+// 攻击类型映射
+const attackTypeNames = {
+    'deauth_broadcast': '广播 Deauth',
+    'deauth_targeted': '定向 Deauth',
+    'disassoc': 'Disassoc',
+    'deauth_burst': '爆发 Deauth',
+    'none': '等待中'
 };
 
 // 初始化
@@ -143,6 +153,16 @@ function updateStatusDisplay(status) {
     if (status.current_target && status.is_capturing) {
         state.currentTarget = status.current_target;
         showCaptureSection();
+        
+        // 更新攻击状态
+        if (status.attack_running && status.attack_type) {
+            const attackName = attackTypeNames[status.attack_type] || status.attack_type;
+            elements.attackStatus.textContent = `${attackName} (第${status.attack_count}轮)`;
+            elements.attackStatus.style.color = 'var(--warning)';
+        } else {
+            elements.attackStatus.textContent = '等待中';
+            elements.attackStatus.style.color = 'var(--text-secondary)';
+        }
     }
 }
 
@@ -421,31 +441,95 @@ function renderCaptures() {
         return;
     }
     
-    elements.captureFiles.innerHTML = state.captures.map(file => `
+    elements.captureFiles.innerHTML = state.captures.map(file => {
+        const ssid = extractSSID(file.filename);
+        return `
         <div class="capture-file">
             <div class="file-icon">
                 <svg viewBox="0 0 24 24"><path d="M14 2H6c-1.1 0-1.99.9-1.99 2L4 20c0 1.1.89 2 1.99 2H18c1.1 0 2-.9 2-2V8l-6-6zm2 16H8v-2h8v2zm0-4H8v-2h8v2zm-3-5V3.5L18.5 9H13z"/></svg>
             </div>
             <div class="file-info">
-                <div class="file-name" title="${file.filename}">${truncateFilename(file.filename)}</div>
+                <div class="file-name" title="${file.filename}">${ssid}</div>
                 <div class="file-meta">${formatFileSize(file.size)} · ${formatDate(file.created)}</div>
             </div>
             <span class="handshake-indicator ${file.has_handshake ? 'success' : 'pending'}">
                 ${file.has_handshake ? '✓ 握手包' : '无握手包'}
             </span>
-            <div class="download-dropdown">
-                <button class="download-btn" onclick="toggleDownloadMenu(event, '${file.filename}')" title="下载">
-                    <svg viewBox="0 0 24 24"><path d="M19 9h-4V3H9v6H5l7 7 7-7zM5 18v2h14v-2H5z"/></svg>
-                    <span class="dropdown-arrow">▼</span>
-                </button>
-                <div class="download-menu" id="menu-${file.filename.replace(/[^a-zA-Z0-9]/g, '_')}">
-                    <a onclick="downloadCapture('${file.filename}', 'cap')">CAP (原始格式)</a>
-                    <a onclick="downloadCapture('${file.filename}', 'hc22000')">HC22000 (Hashcat)</a>
-                    <a onclick="downloadCapture('${file.filename}', 'pmkid')">PMKID</a>
+            <div class="file-actions">
+                <div class="download-dropdown">
+                    <button class="download-btn" onclick="toggleDownloadMenu(event, '${file.filename}')" title="下载">
+                        <svg viewBox="0 0 24 24"><path d="M19 9h-4V3H9v6H5l7 7 7-7zM5 18v2h14v-2H5z"/></svg>
+                    </button>
+                    <div class="download-menu" id="menu-${file.filename.replace(/[^a-zA-Z0-9]/g, '_')}">
+                        <a onclick="downloadCapture('${file.filename}', 'cap')">CAP (原始格式)</a>
+                        <a onclick="downloadCapture('${file.filename}', 'hc22000')">HC22000 (Hashcat)</a>
+                        <a onclick="downloadCapture('${file.filename}', 'pmkid')">PMKID</a>
+                    </div>
                 </div>
+                <button class="delete-btn" onclick="deleteCapture('${file.filename}')" title="删除">
+                    <svg viewBox="0 0 24 24"><path d="M6 19c0 1.1.9 2 2 2h8c1.1 0 2-.9 2-2V7H6v12zM19 4h-3.5l-1-1h-5l-1 1H5v2h14V4z"/></svg>
+                </button>
             </div>
         </div>
-    `).join('');
+    `}).join('');
+}
+
+// 从文件名提取 SSID
+function extractSSID(filename) {
+    // handshake_SSID_20260114_111340-01.cap
+    const match = filename.match(/handshake_(.+?)_\d{8}_\d{6}/);
+    if (match) {
+        return decodeURIComponent(match[1]);
+    }
+    return truncateFilename(filename);
+}
+
+// 删除捕获文件
+async function deleteCapture(filename) {
+    if (!confirm(`确定要删除 ${extractSSID(filename)} 的捕获文件吗？`)) {
+        return;
+    }
+    
+    try {
+        const response = await fetch(`/api/captures/${filename}`, {
+            method: 'DELETE'
+        });
+        const data = await response.json();
+        
+        if (data.success) {
+            showNotification('文件已删除', 'success');
+            loadCaptures();
+        } else {
+            showNotification(data.message || '删除失败', 'error');
+        }
+    } catch (error) {
+        console.error('Delete error:', error);
+        showNotification('删除请求失败', 'error');
+    }
+}
+
+// 清理旧文件
+async function cleanupFiles() {
+    if (!confirm('确定要清理无握手包的捕获文件和旧扫描文件吗？')) {
+        return;
+    }
+    
+    try {
+        const response = await fetch('/api/cleanup', {
+            method: 'POST'
+        });
+        const data = await response.json();
+        
+        if (data.success) {
+            showNotification(`已清理 ${data.deleted_count} 个文件`, 'success');
+            loadCaptures();
+        } else {
+            showNotification(data.message || '清理失败', 'error');
+        }
+    } catch (error) {
+        console.error('Cleanup error:', error);
+        showNotification('清理请求失败', 'error');
+    }
 }
 
 // 下载捕获文件

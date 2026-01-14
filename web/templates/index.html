@@ -98,6 +98,10 @@
                             <span class="label">时长:</span>
                             <span class="value" id="capture-time">00:00</span>
                         </div>
+                        <div class="attack-status">
+                            <span class="label">攻击:</span>
+                            <span class="value" id="attack-status">等待中</span>
+                        </div>
                         <div class="handshake-status">
                             <span class="label">握手包:</span>
                             <span class="value" id="handshake-status">等待中...</span>
@@ -113,11 +117,16 @@
 
                 <!-- 已捕获列表 -->
                 <section class="captures-list">
-                    <h3>
-                        <svg viewBox="0 0 24 24"><path d="M14 2H6c-1.1 0-1.99.9-1.99 2L4 20c0 1.1.89 2 1.99 2H18c1.1 0 2-.9 2-2V8l-6-6zm2 16H8v-2h8v2zm0-4H8v-2h8v2zm-3-5V3.5L18.5 9H13z"/></svg>
-                        已捕获的握手包
-                        <span class="badge" id="capture-count">0</span>
-                    </h3>
+                    <div class="section-header-small">
+                        <h3>
+                            <svg viewBox="0 0 24 24"><path d="M14 2H6c-1.1 0-1.99.9-1.99 2L4 20c0 1.1.89 2 1.99 2H18c1.1 0 2-.9 2-2V8l-6-6zm2 16H8v-2h8v2zm0-4H8v-2h8v2zm-3-5V3.5L18.5 9H13z"/></svg>
+                            已捕获的握手包
+                            <span class="badge" id="capture-count">0</span>
+                        </h3>
+                        <button class="btn-icon" onclick="cleanupFiles()" title="清理旧文件">
+                            <svg viewBox="0 0 24 24"><path d="M6 19c0 1.1.9 2 2 2h8c1.1 0 2-.9 2-2V7H6v12zM19 4h-3.5l-1-1h-5l-1 1H5v2h14V4z"/></svg>
+                        </button>
+                    </div>
                     <div class="capture-files" id="capture-files">
                         <div class="empty-state small">
                             <p>暂无捕获文件</p>

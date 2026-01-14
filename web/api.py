@@ -144,6 +144,25 @@ def convert_capture(filename):
     else:
         return jsonify({'success': False, 'message': '转换失败'}), 400
 
+@api_bp.route('/captures/<filename>', methods=['DELETE'])
+def delete_capture(filename):
+    """删除捕获文件"""
+    deleted = scanner.delete_capture(filename)
+    if deleted:
+        return jsonify({'success': True, 'message': '文件已删除'})
+    else:
+        return jsonify({'success': False, 'message': '删除失败'}), 400
+
+@api_bp.route('/cleanup', methods=['POST'])
+def cleanup_files():
+    """清理旧文件"""
+    deleted_count = scanner.cleanup_old_files()
+    return jsonify({
+        'success': True,
+        'message': f'已清理 {deleted_count} 个文件',
+        'deleted_count': deleted_count
+    })
+
 @api_bp.route('/stream')
 def event_stream():
     """SSE 实时事件流"""

@@ -145,11 +145,13 @@
     
     "00:0C:43": {"name": "Tenda", "logo": "tenda.svg"},
     "00:26:18": {"name": "Tenda", "logo": "tenda.svg"},
+    "08:40:F3": {"name": "Tenda", "logo": "tenda.svg"},
     "C8:3A:35": {"name": "Tenda", "logo": "tenda.svg"},
     "D8:FE:E3": {"name": "Tenda", "logo": "tenda.svg"},
     "EC:26:CA": {"name": "Tenda", "logo": "tenda.svg"},
     
     "00:25:86": {"name": "Mercury", "logo": "mercury.svg"},
+    "4C:B7:E0": {"name": "Mercury", "logo": "mercury.svg"},
     "50:BD:5F": {"name": "Mercury", "logo": "mercury.svg"},
     "D4:61:2E": {"name": "Mercury", "logo": "mercury.svg"},
     "F4:83:CD": {"name": "Mercury", "logo": "mercury.svg"},
@@ -195,7 +197,25 @@
     "C8:69:CD": {"name": "Apple", "logo": "apple.svg"},
     "D8:9E:3F": {"name": "Apple", "logo": "apple.svg"},
     "E0:B9:BA": {"name": "Apple", "logo": "apple.svg"},
-    "F0:D1:A9": {"name": "Apple", "logo": "apple.svg"}
+    "F0:D1:A9": {"name": "Apple", "logo": "apple.svg"},
+    
+    "20:6B:E7": {"name": "TP-Link", "logo": "tp-link.svg"},
+    
+    "50:33:F0": {"name": "Shenzhen", "logo": "unknown.svg"},
+    "A8:31:62": {"name": "Shenzhen", "logo": "unknown.svg"},
+    "AA:31:62": {"name": "Shenzhen", "logo": "unknown.svg"},
+    "C6:B2:5B": {"name": "Private", "logo": "unknown.svg"},
+    "D8:0A:60": {"name": "Shenzhen", "logo": "unknown.svg"},
+    "58:D2:37": {"name": "Shenzhen", "logo": "unknown.svg"},
+    "44:32:62": {"name": "ecobee", "logo": "unknown.svg"},
+    "38:9E:80": {"name": "ChinaNet", "logo": "unknown.svg"},
+    "A0:10:77": {"name": "ChinaNet", "logo": "unknown.svg"},
+    "EC:C3:B0": {"name": "ChinaNet", "logo": "unknown.svg"},
+    "66:C6:D2": {"name": "Seiko Epson", "logo": "unknown.svg"},
+    "84:94:59": {"name": "Shenzhen", "logo": "unknown.svg"},
+    "5C:A0:02": {"name": "Shenzhen", "logo": "unknown.svg"},
+    "04:F9:F8": {"name": "Shenzhen", "logo": "unknown.svg"},
+    "48:46:C1": {"name": "Volvo", "logo": "unknown.svg"}
   },
   "default": {"name": "Unknown", "logo": "unknown.svg"}
 }
