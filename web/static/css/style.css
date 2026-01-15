@@ -851,6 +851,21 @@ body {
     font-size: 0.9rem;
 }
 
+.footer .opensource-link {
+    margin-top: 10px;
+}
+
+.footer .opensource-link a {
+    color: var(--accent-primary);
+    text-decoration: none;
+    transition: opacity 0.3s;
+}
+
+.footer .opensource-link a:hover {
+    opacity: 0.8;
+    text-decoration: underline;
+}
+
 /* Notifications */
 .notification-container {
     position: fixed;
